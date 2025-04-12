@@ -12,7 +12,8 @@ import torch
 import numpy as np
 from huggingface_hub import create_repo
 from datasets.dataset_dict import DatasetDict
-from transformers import TrainingArguments, Trainer
+import transformers
+from transformers import Trainer, IntervalStrategy
 from ray import tune
 
 from .model import Classifier
@@ -133,7 +134,7 @@ class TrainerTextClassification:
               ray_result_dir: str = 'ray_results',
               down_sample_size_train: int = None,
               down_sample_size_validation: int = None,
-              training_arguments: TrainingArguments = None):
+              training_args: transformers.TrainingArguments = None):
         if output_dir is not None:
             self.output_dir = output_dir
         assert self.output_dir is not None, "output_dir should be specified."
@@ -154,15 +155,17 @@ class TrainerTextClassification:
             search_train_dataset = tmp.select(list(range(down_sample_size_train)))
         if self.split_validation is None:
             logging.warning('setup trainer without hyperparameter tuning. (provide `split_validation` for hyperparameter search)')
-            training_arguments = TrainingArguments(
+            print("💥 Real TrainingArguments comes from:", transformers.TrainingArguments.__module__)
+            print("💥 Real TrainingArguments is:", transformers.TrainingArguments)
+            training_args = transformers.TrainingArguments(
                     output_dir=self.output_dir,
-                    evaluation_strategy="no",
+                    eval_strategy=IntervalStrategy.NO,
                     eval_steps=eval_step,
                     seed=random_seed
-                ) if training_arguments is None else training_arguments
+                ) if training_args is None else training_args
             self.trainer = Trainer(
                 model=self.model,
-                args=training_arguments,
+                args=training_args,
                 train_dataset=full_train_dataset
             )
         else:
@@ -176,9 +179,9 @@ class TrainerTextClassification:
 
             self.trainer = Trainer(
                 model=self.model,
-                args=TrainingArguments(
+                args=transformers.TrainingArguments(
                     output_dir=self.output_dir,
-                    evaluation_strategy="steps",
+                    eval_strategy="steps",
                     eval_steps=eval_step,
                     seed=random_seed
                 ),
@@ -224,7 +227,7 @@ class TrainerTextClassification:
             for n, v in best_run.hyperparameters.items():
                 setattr(self.trainer.args, n, v)
             setattr(self.trainer, "train_dataset", full_train_dataset)
-            setattr(self.trainer.args, "evaluation_strategy", 'no')
+            setattr(self.trainer.args, "eval_strategy", IntervalStrategy.NO)
         self.trainer.train()
         logging.info('training finished')
         self.model = self.trainer.model
@@ -272,7 +275,7 @@ class TrainerTextClassification:
         # )
         trainer = Trainer(
             model=self.model,
-            args=TrainingArguments(output_dir=self.output_dir, evaluation_strategy="no"),
+            args=transformers.TrainingArguments(output_dir=self.output_dir, eval_strategy=IntervalStrategy.NO),
             eval_dataset=self.tokenized_datasets[self.split_test],
             compute_metrics=self.compute_metric_all
         )
